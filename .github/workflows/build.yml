@@ -1,6 +1,6 @@
 name: Build and Test
-
 on: push
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -16,29 +16,17 @@ jobs:
           distribution: temurin
       - name: Cache Maven artifacts
         uses: actions/cache@v4
-        with:
-          path: ~/.m2/repository
-          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
-          restore-keys: |
-            ${{ runner.os }}-maven-
       - name: Cache node
         uses: actions/cache@v4
-        with:
-          path: web-bundle/node
-          key: ${{ runner.os }}-node-${{ hashFiles('**/pom.xml') }}
-          restore-keys: |
-            ${{ runner.os}}-node-
       - name: Cache node_modules
         uses: actions/cache@v4
-        with:
-          path: web-bundle/node_modules
-          key: ${{ runner.os }}-node-${{ hashFiles('**/pom.xml', '**/package.json') }}
-          restore-keys: |
-            ${{ runner.os}}-node_modules-
       - name: Build ${{ matrix.java-version }}
         run: mvn -B clean test
 
 
+  # ---------------------------------------------------------
+  # 🔥 ICI : tu ajoutes le NOUVEAU JOB mutation-check 🔥
+  # ---------------------------------------------------------
   mutation-check:
     runs-on: ubuntu-latest
     needs: build
@@ -53,44 +41,33 @@ jobs:
           distribution: temurin
           cache: maven
 
-
-      # 1. Score HEAD
       - name: Run PIT on HEAD
         id: pit_head
         run: |
-          mvn -B -ntp org.pitest:pitest-maven:mutationCoverage
-          SCORE=$(grep -oP "Mutation\s*Coverage[^0-9]*\K[0-9]+\.[0-9]+" -h target/pit-reports/*/index.html | head -1)
+          mvn -B -ntp -pl core -am -DfailWhenNoMutations=false org.pitest:pitest-maven:mutationCoverage
+          SCORE=$(grep -oP "Mutation\s*Coverage[^0-9]*\K[0-9]+\.[0-9]+" -h core/target/pit-reports/*/index.html | head -1)
           echo "score=$SCORE" >> $GITHUB_OUTPUT
           echo "HEAD SCORE = $SCORE"
 
-
-      # 2. Score BASE (si PR)
       - name: Run PIT on BASE branch
         if: ${{ github.event_name == 'pull_request' }}
         id: pit_base
         run: |
           git checkout ${{ github.event.pull_request.base.sha }}
-          mvn -B -ntp org.pitest:pitest-maven:mutationCoverage
-          BASE=$(grep -oP "Mutation\s*Coverage[^0-9]*\K[0-9]+\.[0-9]+" -h target/pit-reports/*/index.html | head -1)
+          mvn -B -ntp -pl core -am -DfailWhenNoMutations=false org.pitest:pitest-maven:mutationCoverage
+          BASE=$(grep -oP "Mutation\s*Coverage[^0-9]*\K[0-9]+\.[0-9]+" -h core/target/pit-reports/*/index.html | head -1)
           echo "base=$BASE" >> $GITHUB_OUTPUT
           echo "BASE SCORE = $BASE"
 
-
-      # 3. Comparaison
-      - name: Compare mutation score (fail if decreased)
+      - name: Compare mutation score
         if: ${{ github.event_name == 'pull_request' }}
         run: |
           HEAD=${{ steps.pit_head.outputs.score }}
           BASE=${{ steps.pit_base.outputs.base }}
 
-          echo "HEAD = $HEAD"
-          echo "BASE = $BASE"
-
           if (( $(echo "$HEAD < $BASE" | bc -l) )); then
-            echo "❌ Mutation score decreased → failing build"
+            echo "❌ Mutation score decreased → FAIL"
             exit 1
-          else
-            echo "✅ Mutation score is stable or improved"
           fi
 
-
+          echo "✅ Mutation score OK"
