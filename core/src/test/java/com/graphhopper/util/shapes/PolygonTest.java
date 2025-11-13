@@ -170,7 +170,7 @@ public class PolygonTest {
         assertTrue(polygon.contains(0.5, 0.5), "Le point (0.5,0.5) doit être à l’intérieur");
         assertFalse(polygon.contains(2.0, 2.0), "Le point (2.0,2.0) doit être à l’extérieur");
 
-        // vérifie les limitess
+        // vérifie les limites
         assertEquals(0.0, polygon.getMinLat(), 1e-10);
         assertEquals(0.0, polygon.getMinLon(), 1e-10);
         assertEquals(1.0, polygon.getMaxLat(), 1e-10);
