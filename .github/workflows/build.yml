@@ -61,6 +61,10 @@ jobs:
           distribution: temurin
           cache: maven
 
+      # ⭐ IMPORTANT : Build complet avant PIT (corrige ton erreur ❗)
+      - name: Build all modules before PIT
+        run: mvn -B -ntp clean install -DskipTests
+
       - name: Run PIT on HEAD
         id: pit_head
         run: |
@@ -74,6 +78,7 @@ jobs:
         id: pit_base
         run: |
           git checkout ${{ github.event.pull_request.base.sha }}
+          mvn -B -ntp clean install -DskipTests
           mvn -B -ntp -pl core -am -DfailWhenNoMutations=false org.pitest:pitest-maven:mutationCoverage
           BASE=$(grep -oP "Mutation\s*Coverage[^0-9]*\K[0-9]+\.[0-9]+" -h core/target/pit-reports/*/index.html | head -1)
           echo "base=$BASE" >> $GITHUB_OUTPUT
@@ -94,3 +99,4 @@ jobs:
           fi
 
           echo "✅ Mutation score OK"
+  
