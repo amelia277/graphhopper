@@ -55,13 +55,13 @@ jobs:
         with:
           fetch-depth: 0
 
+      # ⭐ Java 21 obligatoire pour PIT (sinon MINION_DIED)
       - uses: actions/setup-java@v4
         with:
-          java-version: 24
+          java-version: 21
           distribution: temurin
           cache: maven
 
-      # ⭐ IMPORTANT : Build complet avant PIT (corrige ton erreur ❗)
       - name: Build all modules before PIT
         run: mvn -B -ntp clean install -DskipTests
 
@@ -99,4 +99,3 @@ jobs:
           fi
 
           echo "✅ Mutation score OK"
-  
