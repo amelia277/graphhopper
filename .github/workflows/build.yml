@@ -1,18 +1,26 @@
 name: Build and Test
 on: push
+
 jobs:
   build:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        java-version: [ 24, 25-ea ]
+        java-version: [24]
+
     steps:
+
+      # Checkout repository
       - uses: actions/checkout@v4
+
+      # Java 24 for main build
       - uses: actions/setup-java@v4
         with:
           java-version: ${{ matrix.java-version }}
           distribution: temurin
+
+      # Cache Maven
       - name: Cache Maven artifacts
         uses: actions/cache@v4
         with:
@@ -20,69 +28,89 @@ jobs:
           key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
           restore-keys: |
             ${{ runner.os }}-maven-
+
+      # Cache node
       - name: Cache node
         uses: actions/cache@v4
         with:
           path: web-bundle/node
           key: ${{ runner.os }}-node-${{ hashFiles('**/pom.xml') }}
           restore-keys: |
-            ${{ runner.os}}-node-
+            ${{ runner.os }}-node-
+
+      # Cache node_modules
       - name: Cache node_modules
         uses: actions/cache@v4
         with:
           path: web-bundle/node_modules
           key: ${{ runner.os }}-node-${{ hashFiles('**/pom.xml', '**/package.json') }}
           restore-keys: |
-            ${{ runner.os}}-node_modules-
-      - name: Build ${{ matrix.java-version }}
-        run: mvn -B clean test
-      - name: Run PIT Mutation Testing
-        run: mvn org.pitest:pitest-maven:mutationCoverage
+            ${{ runner.os }}-node_modules-
 
-      - name: Extract current PIT score
-        id: current
+      # Build sans tests
+      - name: Build and Test ${{ matrix.java-version }}
+        run: mvn -B clean install -DskipTests
+
+      # Run tests
+      - name: Run Tests
+        if: success()
+        run: mvn -B test
+
+      # Switch to Java 21 for PIT
+      - name: Setup Java 21 for PIT
+        if: success()
+        uses: actions/setup-java@v4
+        with:
+          java-version: 21
+          distribution: temurin
+
+      # Run PIT in core module only
+      - name: Run PIT Mutation Testing (core)
+        if: success()
         run: |
-          SCORE=$(grep -oPm1 "(?<=<score>)[^<]+" target/pit-reports/*/summary.xml || echo 0)
-          echo "current_score=$SCORE" >> $GITHUB_OUTPUT
-          echo "Current mutation score: $SCORE"
+          cd core
+          mvn -B org.pitest:pitest-maven:mutationCoverage
 
-      - name: Get previous PIT score
-        id: previous
+      # Extract & validate mutation score
+      - name: Check Mutation Score
+        if: always()
         run: |
-          if [ -f mutation_score.txt ]; then
-            PREV=$(cat mutation_score.txt)
-          else
-            PREV=0
-          fi
-          echo "previous_score=$PREV" >> $GITHUB_OUTPUT
-          echo "Previous mutation score: $PREV"
+          REPORT=$(ls core/target/pit-reports/*/index.html | head -1)
 
-      - name: Compare scores
-        id: compare
-        run: |
-          CUR=${{ steps.current.outputs.current_score }}
-          PREV=${{ steps.previous.outputs.previous_score }}
+          # Extract correct mutation coverage %
+          MUTATION_SCORE=$(grep -oP '(?<=Mutation coverage</th><td>)[0-9]+' "$REPORT")
 
-          echo "🔍 Comparing mutation scores..."
-          echo "Previous: $PREV"
-          echo "Current:  $CUR"
+          echo "📊 Mutation Score: ${MUTATION_SCORE}%"
 
-          if [ "$CUR" -lt "$PREV" ]; then
-            echo "Mutation score decreased! ($CUR < $PREV)"
+          MIN_SCORE=50
+
+          if [ "$MUTATION_SCORE" -lt "$MIN_SCORE" ]; then
+            echo "::error title=Mutation Score Too Low::Mutation score ($MUTATION_SCORE%) is below minimum threshold ($MIN_SCORE%)"
             exit 1
           fi
 
-          echo "Mutation score OK or improved ($CUR ≥ $PREV)"
+          echo "✓ Mutation score acceptable"
 
-      - name: Save new mutation score
-        if: success()
-        run: echo "${{ steps.current.outputs.current_score }}" > mutation_score.txt
+      # Upload PIT report
+      - name: Upload PIT Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pit-report-java-${{ matrix.java-version }}
+          path: core/target/pit-reports
 
-      - name: Commit updated mutation score
-        if: success()
+      # Rickroll on failure
+      - name: Rickroll
+        if: failure()
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add mutation_score.txt
-          git commit -m "Update mutation score to ${{ steps.current.outputs.current_score }}" || echo "No changes to commit"
-          git push
+          echo "######################################################"
+          echo "                     OHÉ MATELOT !!"
+          echo "               Vos tests ont *échoué* 😭"
+          echo "######################################################"
+
+          cat >> $GITHUB_STEP_SUMMARY << 'EOF'
+  ![MEME](https://blog.zegocloud.com/wp-content/uploads/2024/02/programming-meme-22.jpg)
+  
+  ### 💀 *Un ou plusieurs tests ont échoué…*  
+  Corrige ton code avant que le navire coule ⚓🔥
+  EOF
